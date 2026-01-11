@@ -3,6 +3,9 @@ assets/
 processing.log
 foresight.yaml
 .pytest_cache/
+__pycache__/
+.cache/
+.claude/
 
 # Python
 __pycache__/
