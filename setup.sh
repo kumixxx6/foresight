@@ -110,7 +110,7 @@ echo ""
 
 # Install Python dependencies
 pip3 install --upgrade pip
-pip3 install openai-whisper watchdog
+pip3 install openai-whisper watchdog pyyaml
 
 success "Python packages installed"
 

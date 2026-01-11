@@ -73,6 +73,19 @@ FAILED_DIR = BASE_DIR / "failed"
 LOG_FILE = BASE_DIR / "processing.log"
 FAILED_LOG = BASE_DIR / "failed_files.json"
 
+
+def set_base_dir(base_dir: Path) -> None:
+    """Update global directory paths from a new base directory."""
+    global BASE_DIR, RAW_DIR, TRANSCRIPTS_DIR, INSIGHTS_DIR, ARCHIVE_DIR, FAILED_DIR, LOG_FILE, FAILED_LOG
+    BASE_DIR = base_dir
+    RAW_DIR = BASE_DIR / "raw"
+    TRANSCRIPTS_DIR = BASE_DIR / "transcripts"
+    INSIGHTS_DIR = BASE_DIR / "insights"
+    ARCHIVE_DIR = BASE_DIR / "archive"
+    FAILED_DIR = BASE_DIR / "failed"
+    LOG_FILE = BASE_DIR / "processing.log"
+    FAILED_LOG = BASE_DIR / "failed_files.json"
+
 # =============================================================================
 # Ollama Extraction Prompt
 # =============================================================================
@@ -105,6 +118,93 @@ EXTRACTION_PROMPT = """You are analyzing a procurement stakeholder interview tra
 
 TRANSCRIPT:
 {transcript_text}"""
+
+
+def build_extraction_prompt(template: str, transcript: str) -> str:
+    """Build the final LLM prompt from a template and transcript."""
+    if "{transcript_text}" in template:
+        return template.format(transcript_text=transcript)
+    return f"{template.rstrip()}\n\nTRANSCRIPT:\n{transcript}"
+
+
+def load_prompt_template(path: Path) -> Optional[str]:
+    """Load a prompt template from disk."""
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        logger.error(f"Prompt template not found: {path}")
+        print(f"❌ Prompt template not found: {path}")
+        return None
+    except OSError as exc:
+        logger.error(f"Failed to read prompt template: {path} ({exc})")
+        print(f"❌ Failed to read prompt template: {path}")
+        return None
+
+
+def resolve_prompt_template_path(value: str, base_dir: Optional[Path] = None) -> Path:
+    """Resolve a prompt template name or path to a file on disk."""
+    path = Path(value).expanduser()
+    if path.exists():
+        return path
+    if path.suffix:
+        return path
+    search_root = base_dir or Path.cwd()
+    candidate = search_root / "prompts" / f"{value}.txt"
+    if candidate.exists():
+        return candidate
+    return path
+
+
+def load_config(path: Path) -> Optional[dict]:
+    """Load configuration from a YAML file."""
+    try:
+        import yaml
+    except ImportError:
+        print("❌ PyYAML is required for config files. Install with: pip install pyyaml")
+        return None
+
+    try:
+        data = yaml.safe_load(path.read_text())
+    except FileNotFoundError:
+        print(f"❌ Config file not found: {path}")
+        return None
+    except OSError:
+        print(f"❌ Failed to read config file: {path}")
+        return None
+
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        print("❌ Config file must contain a YAML mapping of keys to values.")
+        return None
+    return data
+
+
+def apply_config(config: dict) -> dict:
+    """Apply config values to globals and return normalized settings."""
+    global WHISPER_MODEL, OLLAMA_MODEL
+    normalized = {}
+
+    output_dir = config.get("output_dir")
+    if output_dir:
+        set_base_dir(Path(output_dir).expanduser().resolve())
+        normalized["output_dir"] = str(BASE_DIR)
+
+    whisper_model = config.get("whisper_model")
+    if whisper_model:
+        WHISPER_MODEL = whisper_model
+        normalized["whisper_model"] = whisper_model
+
+    ollama_model = config.get("ollama_model")
+    if ollama_model:
+        OLLAMA_MODEL = ollama_model
+        normalized["ollama_model"] = ollama_model
+
+    prompt_template = config.get("prompt_template")
+    if prompt_template:
+        normalized["prompt_template"] = prompt_template
+
+    return normalized
 
 # =============================================================================
 # Data Classes
@@ -154,36 +254,52 @@ class SessionStats:
 
 def setup_logging(verbose: bool = False) -> logging.Logger:
     """Configure logging with rotation and console output."""
-    BASE_DIR.mkdir(parents=True, exist_ok=True)
-
     logger = logging.getLogger("interview_processor")
     logger.setLevel(logging.DEBUG)
 
     # Clear any existing handlers
     logger.handlers.clear()
 
-    # File handler with rotation
-    file_handler = RotatingFileHandler(
-        LOG_FILE,
-        maxBytes=LOG_MAX_SIZE,
-        backupCount=LOG_BACKUP_COUNT,
-        encoding="utf-8"
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    file_handler.setFormatter(file_formatter)
-
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.DEBUG if verbose else logging.INFO)
     console_formatter = logging.Formatter("%(message)s")
     console_handler.setFormatter(console_formatter)
-
-    logger.addHandler(file_handler)
     logger.addHandler(console_handler)
+
+    # File handler with rotation
+    file_formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    try:
+        BASE_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_FILE,
+            maxBytes=LOG_MAX_SIZE,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8"
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(file_formatter)
+        logger.addHandler(file_handler)
+    except OSError:
+        fallback_path = Path.cwd() / "processing.log"
+        try:
+            file_handler = RotatingFileHandler(
+                fallback_path,
+                maxBytes=LOG_MAX_SIZE,
+                backupCount=LOG_BACKUP_COUNT,
+                encoding="utf-8"
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(file_formatter)
+            logger.addHandler(file_handler)
+            logger.warning(
+                f"Log file unavailable at {LOG_FILE}, using {fallback_path}"
+            )
+        except OSError:
+            logger.warning("Log file unavailable; using console logging only")
 
     return logger
 
@@ -381,7 +497,7 @@ def transcribe_audio(filepath: Path, model: str = WHISPER_MODEL) -> tuple[Option
         return None, None
 
 
-def extract_insights(transcript: str) -> Optional[str]:
+def extract_insights(transcript: str, prompt_template: Optional[str] = None) -> Optional[str]:
     """
     Send transcript to Ollama for insight extraction.
 
@@ -390,7 +506,8 @@ def extract_insights(transcript: str) -> Optional[str]:
     """
     log_progress("🧠", f"Extracting insights with {OLLAMA_MODEL}...")
 
-    prompt = EXTRACTION_PROMPT.format(transcript_text=transcript)
+    template = prompt_template or EXTRACTION_PROMPT
+    prompt = build_extraction_prompt(template, transcript)
 
     try:
         result = subprocess.run(
@@ -522,6 +639,7 @@ def process_single_file(
     model: str = WHISPER_MODEL,
     skip_insights: bool = False,
     keep_original: bool = False,
+    prompt_template: Optional[str] = None,
     file_num: int = 0,
     total: int = 0
 ) -> ProcessingResult:
@@ -574,7 +692,7 @@ def process_single_file(
 
     # Extract insights (unless skipped)
     if not skip_insights:
-        insights = extract_insights(transcript)
+        insights = extract_insights(transcript, prompt_template=prompt_template)
         if insights is None:
             logger.warning("Insight extraction failed. Transcript saved, file not archived.")
             print("⚠️  Insight extraction failed. Transcript saved, file NOT archived.")
@@ -628,7 +746,8 @@ def single_file_mode(
     filepath: Path,
     model: str = WHISPER_MODEL,
     skip_insights: bool = False,
-    keep_original: bool = False
+    keep_original: bool = False,
+    prompt_template: Optional[str] = None
 ) -> bool:
     """Process a single file."""
     logger.info(f"\n{'='*60}")
@@ -639,7 +758,8 @@ def single_file_mode(
         filepath,
         model=model,
         skip_insights=skip_insights,
-        keep_original=keep_original
+        keep_original=keep_original,
+        prompt_template=prompt_template
     )
 
     return result.success
@@ -649,7 +769,8 @@ def batch_mode(
     model: str = WHISPER_MODEL,
     skip_insights: bool = False,
     keep_original: bool = False,
-    dry_run: bool = False
+    dry_run: bool = False,
+    prompt_template: Optional[str] = None
 ) -> bool:
     """Process all files in the raw directory."""
     logger.info(f"\n{'='*60}")
@@ -685,6 +806,7 @@ def batch_mode(
             model=model,
             skip_insights=skip_insights,
             keep_original=keep_original,
+            prompt_template=prompt_template,
             file_num=i,
             total=len(files)
         )
@@ -715,7 +837,8 @@ def batch_mode(
 def watch_mode(
     model: str = WHISPER_MODEL,
     skip_insights: bool = False,
-    keep_original: bool = False
+    keep_original: bool = False,
+    prompt_template: Optional[str] = None
 ) -> None:
     """Monitor the raw directory for new files."""
     try:
@@ -774,7 +897,8 @@ def watch_mode(
                 filepath,
                 model=model,
                 skip_insights=skip_insights,
-                keep_original=keep_original
+                keep_original=keep_original,
+                prompt_template=prompt_template
             )
             stats.add_result(result)
 
@@ -862,10 +986,110 @@ def show_status() -> None:
     print(f"{'✅' if disk_ok else '⚠️ '} Disk: {'OK' if disk_ok else disk_err}")
 
 
+# =============================================================================
+# Web UI
+# =============================================================================
+
+def run_ui(
+    model: str = WHISPER_MODEL,
+    prompt_template: Optional[str] = None,
+    skip_insights: bool = False,
+    keep_original: bool = False
+) -> int:
+    """Launch a simple Gradio UI for non-technical users."""
+    try:
+        import gradio as gr
+    except ImportError:
+        print("❌ Gradio is required for the UI. Install with: pip install 'foresight-transcribe[ui]'")
+        return 1
+
+    template_map = {}
+    templates_dir = Path.cwd() / "prompts"
+    if templates_dir.exists():
+        for template_path in sorted(templates_dir.glob("*.txt")):
+            template_map[template_path.stem] = template_path
+
+    template_choices = ["Default"]
+    template_choices.extend(template_map.keys())
+
+    def process_upload(file_obj, model_choice, template_choice, skip_choice, keep_choice):
+        if file_obj is None:
+            return "No file uploaded.", "", ""
+
+        selected_template = prompt_template
+        if template_choice != "Default":
+            template_path = template_map.get(template_choice)
+            if not template_path:
+                return f"Prompt template not found: {template_choice}", "", ""
+            selected_template = load_prompt_template(template_path)
+            if selected_template is None:
+                return "Failed to load prompt template.", "", ""
+
+        if not skip_choice:
+            ollama_ok, ollama_err = check_ollama_running()
+            if not ollama_ok:
+                return f"Ollama not running: {ollama_err}", "", ""
+
+        result = process_single_file(
+            Path(file_obj.name),
+            model=model_choice,
+            skip_insights=skip_choice,
+            keep_original=keep_choice,
+            prompt_template=selected_template
+        )
+
+        if not result.success:
+            return f"Processing failed: {result.error_message}", "", ""
+
+        transcript_text = ""
+        insights_text = ""
+        if result.transcript_path and result.transcript_path.exists():
+            transcript_text = result.transcript_path.read_text()
+        if result.insights_path and result.insights_path.exists():
+            insights_text = result.insights_path.read_text()
+
+        return "Done.", transcript_text, insights_text
+
+    with gr.Blocks(title="Foresight") as demo:
+        gr.Markdown("# Foresight\nUpload an audio file to transcribe and extract insights.")
+
+        with gr.Row():
+            file_input = gr.File(label="Audio file")
+            model_input = gr.Dropdown(
+                choices=["tiny", "base", "small", "medium", "large"],
+                value=model,
+                label="Whisper model"
+            )
+
+        with gr.Row():
+            template_input = gr.Dropdown(
+                choices=template_choices,
+                value="Default",
+                label="Prompt template"
+            )
+            skip_input = gr.Checkbox(value=skip_insights, label="Skip insights")
+            keep_input = gr.Checkbox(value=keep_original, label="Keep original file")
+
+        run_button = gr.Button("Process")
+        status_output = gr.Textbox(label="Status")
+        transcript_output = gr.Textbox(label="Transcript (Markdown)", lines=16)
+        insights_output = gr.Textbox(label="Insights (Markdown)", lines=16)
+
+        run_button.click(
+            process_upload,
+            inputs=[file_input, model_input, template_input, skip_input, keep_input],
+            outputs=[status_output, transcript_output, insights_output]
+        )
+
+    demo.launch(server_port=8000, inbrowser=True)
+    return 0
+
+
 def retry_failed(
     model: str = WHISPER_MODEL,
     skip_insights: bool = False,
-    keep_original: bool = False
+    keep_original: bool = False,
+    prompt_template: Optional[str] = None
 ) -> bool:
     """Retry processing of previously failed files."""
     if not FAILED_LOG.exists():
@@ -901,7 +1125,8 @@ def retry_failed(
             filepath,
             model=model,
             skip_insights=skip_insights,
-            keep_original=keep_original
+            keep_original=keep_original,
+            prompt_template=prompt_template
         )
         stats.add_result(result)
 
@@ -1035,6 +1260,8 @@ Examples:
   %(prog)s --status                   Show current status
   %(prog)s --retry-failed             Retry previously failed files
   %(prog)s --test                     Test installation
+  %(prog)s --file interview.m4a --prompt prompts/sales-call.txt
+  %(prog)s --ui                       Launch the web UI
 
 Supported formats: .m4a, .wav, .mp3, .mp4
         """
@@ -1073,12 +1300,17 @@ Supported formats: .m4a, .wav, .mp3, .mp4
         action="store_true",
         help="Run a test to verify installation"
     )
+    mode_group.add_argument(
+        "--ui",
+        action="store_true",
+        help="Launch a simple web UI"
+    )
 
     # Options
     parser.add_argument(
         "-m", "--model",
         type=str,
-        default=WHISPER_MODEL,
+        default=None,
         choices=["tiny", "base", "small", "medium", "large"],
         help=f"Whisper model to use (default: {WHISPER_MODEL})"
     )
@@ -1098,6 +1330,18 @@ Supported formats: .m4a, .wav, .mp3, .mp4
         help="Show what would be processed without processing"
     )
     parser.add_argument(
+        "--prompt",
+        type=Path,
+        metavar="FILE",
+        help="Path to a prompt template for insight extraction"
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        metavar="FILE",
+        help="Path to a foresight.yaml config file"
+    )
+    parser.add_argument(
         "-v", "--verbose",
         action="store_true",
         help="Enable verbose debug output"
@@ -1110,11 +1354,46 @@ Supported formats: .m4a, .wav, .mp3, .mp4
         parser.print_help()
         return 0
 
+    config_data = {}
+    config_path = None
+    if args.config:
+        config_path = args.config.expanduser().resolve()
+    else:
+        default_config = Path.cwd() / "foresight.yaml"
+        if default_config.exists():
+            config_path = default_config
+
+    if config_path:
+        config_data = load_config(config_path)
+        if config_data is None:
+            return 1
+        config_data = apply_config(config_data)
+
     # Setup logging
     logger = setup_logging(args.verbose)
 
     # Create directories
     create_directories()
+
+    model = args.model or WHISPER_MODEL
+    if model not in ["tiny", "base", "small", "medium", "large"]:
+        print(f"❌ Invalid whisper_model: {model}")
+        return 1
+
+    prompt_template = None
+    prompt_path = None
+    if args.prompt:
+        prompt_path = args.prompt.expanduser().resolve()
+    elif config_data.get("prompt_template"):
+        base_dir = config_path.parent if config_path else None
+        prompt_path = resolve_prompt_template_path(
+            config_data["prompt_template"],
+            base_dir=base_dir
+        )
+    if prompt_path:
+        prompt_template = load_prompt_template(prompt_path)
+        if prompt_template is None:
+            return 1
 
     # Handle utility commands first
     if args.status:
@@ -1123,6 +1402,14 @@ Supported formats: .m4a, .wav, .mp3, .mp4
 
     if args.test:
         return 0 if run_test() else 1
+
+    if args.ui:
+        return run_ui(
+            model=model,
+            prompt_template=prompt_template,
+            skip_insights=args.skip_insights,
+            keep_original=args.keep_original
+        )
 
     # Check dependencies for processing modes
     if not args.skip_insights:
@@ -1148,9 +1435,10 @@ Supported formats: .m4a, .wav, .mp3, .mp4
     # Execute the selected mode
     if args.watch:
         watch_mode(
-            model=args.model,
+            model=model,
             skip_insights=args.skip_insights,
-            keep_original=args.keep_original
+            keep_original=args.keep_original,
+            prompt_template=prompt_template
         )
         return 0
 
@@ -1158,26 +1446,29 @@ Supported formats: .m4a, .wav, .mp3, .mp4
         filepath = args.file.expanduser().resolve()
         success = single_file_mode(
             filepath,
-            model=args.model,
+            model=model,
             skip_insights=args.skip_insights,
-            keep_original=args.keep_original
+            keep_original=args.keep_original,
+            prompt_template=prompt_template
         )
         return 0 if success else 1
 
     elif args.batch:
         success = batch_mode(
-            model=args.model,
+            model=model,
             skip_insights=args.skip_insights,
             keep_original=args.keep_original,
-            dry_run=args.dry_run
+            dry_run=args.dry_run,
+            prompt_template=prompt_template
         )
         return 0 if success else 1
 
     elif args.retry_failed:
         success = retry_failed(
-            model=args.model,
+            model=model,
             skip_insights=args.skip_insights,
-            keep_original=args.keep_original
+            keep_original=args.keep_original,
+            prompt_template=prompt_template
         )
         return 0 if success else 1
 

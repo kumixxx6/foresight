@@ -11,6 +11,10 @@ Drop an audio file in a folder. Get back a searchable transcript and an AI-extra
 
 100% local. No API costs. No data leaves your machine.
 
+![Demo](examples/demo.gif)
+
+Recorded with `vhs`. The script lives at `examples/demo.tape`.
+
 ---
 
 ## The Problem
@@ -102,11 +106,25 @@ Process one recording right now.
 ```bash
 foresight --file meeting.m4a
 ```
+Use a custom extraction template:
+```bash
+foresight --file meeting.m4a --prompt prompts/sales-call.txt
+```
 
 ### Batch Mode
 Have a backlog? Process everything at once.
 ```bash
 foresight --batch
+```
+
+### Web UI (optional)
+Launch a simple drag-and-drop UI at `http://localhost:8000`:
+```bash
+foresight --ui
+```
+Install the UI dependency first:
+```bash
+pip install "foresight-transcribe[ui]"
 ```
 
 ---
@@ -148,6 +166,11 @@ The full conversation, searchable and quotable...
 [2-3 sentence summary of the entire conversation]
 ```
 
+### Example Outputs (Repo)
+See sample files in `examples/`:
+- `examples/sample-transcript.md`
+- `examples/sample-insights.md`
+
 ---
 
 ## Directory Structure
@@ -162,6 +185,7 @@ Auto-created on first run:
 ├── archive/       ← Processed originals
 └── processing.log
 ```
+Set `output_dir` in `foresight.yaml` to change the base directory.
 
 ---
 
@@ -188,6 +212,23 @@ next steps agreed, budget signals..."""
 EXTRACTION_PROMPT = """Extract: user goals, frustrations,
 current workflow, feature requests..."""
 ```
+You can also keep templates in files and pass one at runtime:
+```bash
+foresight --file meeting.m4a --prompt prompts/user-research.txt
+```
+
+### Config file
+Create `foresight.yaml` in your working directory to override defaults:
+```yaml
+whisper_model: medium
+ollama_model: mistral
+prompt_template: user-research
+output_dir: ./processed
+```
+You can also pass a path explicitly:
+```bash
+foresight --config /path/to/foresight.yaml --watch
+```
 
 ---
 
@@ -201,7 +242,10 @@ current workflow, feature requests..."""
 | `--dry-run` | Preview what would be processed |
 | `--status` | Show pending files and system health |
 | `--retry-failed` | Retry previously failed files |
+| `--prompt` | Use a prompt template file for insights |
+| `--config` | Load settings from a config file |
 | `--test` | Verify installation works |
+| `--ui` | Launch a simple web UI |
 
 ---
 
@@ -240,6 +284,20 @@ A 1-hour recording costs ~$0.36 on cloud transcription. Process 100 interviews a
 `.m4a` `.mp3` `.wav` `.mp4`
 
 Files under 100KB are skipped (filters out accidental recordings).
+
+---
+
+## Prompt Templates
+Use-case templates live in `prompts/`:
+- `prompts/sales-call.txt`
+- `prompts/user-research.txt`
+- `prompts/podcast-shownotes.txt`
+- `prompts/meeting-notes.txt`
+- `prompts/journalist-interview.txt`
+
+Pass one with `--prompt` to switch extraction style.
+In `foresight.yaml`, `prompt_template` can be a template name (e.g., `user-research`)
+or a full file path.
 
 ---
 

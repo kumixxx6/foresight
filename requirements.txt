@@ -7,6 +7,9 @@ watchdog>=3.0.0
 # Audio transcription (local Whisper model)
 openai-whisper>=20231117
 
+# Config files (foresight.yaml)
+PyYAML>=6.0
+
 # ============================================
 # EXTERNAL DEPENDENCIES (install separately)
 # ============================================
