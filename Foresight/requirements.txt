@@ -1,0 +1,28 @@
+# Foresight - Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# File system monitoring (for watch mode)
+watchdog>=3.0.0
+
+# Audio transcription (local Whisper model)
+openai-whisper>=20231117
+
+# ============================================
+# EXTERNAL DEPENDENCIES (install separately)
+# ============================================
+#
+# 1. ffmpeg - Audio processing
+#    macOS:  brew install ffmpeg
+#    Linux:  sudo apt install ffmpeg
+#
+# 2. Ollama - Local LLM runtime
+#    All OS: curl -fsSL https://ollama.com/install.sh | sh
+#    macOS:  brew install ollama
+#
+# 3. Mistral model (~4GB download)
+#    ollama pull mistral
+#
+# ============================================
+# OR just run the setup script:
+#    ./setup.sh
+# ============================================
